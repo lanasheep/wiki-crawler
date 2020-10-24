@@ -5,6 +5,7 @@
 * write a simple queue and indexed set implementation
 * implement BFS
 * implement algorithm for parsing HTML
+* add tests
 * add multi-thread
 * connect storage on server
 * add priorities to the queue to process the most important and relevant information first
