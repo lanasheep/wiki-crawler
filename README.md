@@ -8,5 +8,6 @@
 * add tests
 * add multi-thread
 * connect storage on server
+* move indexed set to database
 * add priorities to the queue to process the most important and relevant information first
 * create documentation
