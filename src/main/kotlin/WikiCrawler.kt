@@ -5,32 +5,41 @@ import org.jsoup.nodes.Document
 import java.io.*
 import java.net.URL
 import javax.imageio.ImageIO
-import java.io.FileWriter
+import org.jetbrains.exposed.sql.statements.api.ExposedBlob
 
-const val MAX_PAGES_CNT = 30
-const val WIKI_HTTPS = "https://ru.wikipedia.org/"
-const val IMG_DIR = "img"
-const val TXT_DIR = "txt"
+const val WIKI_HTTPS ="https://ru.wikipedia.org/"
+const val IMAGES_DIR = "images"
+const val ARTICLES_DIR = "articles"
 
-class WikiCrawler {
+class WikiCrawler(private val database: DB) {
     private var cntImages = 0
     private var cntPages = 0
     private var path = ""
-    private val queue: Queue<String> = LinkedList<String>()
-    private val index: MutableSet<String> = mutableSetOf()
+    private var cntPagesMax = 5
+    private val queue: Queue<Pair<String, Int>> = LinkedList<Pair<String, Int>>()
 
-    private fun saveImageFromUrl(url: String) {
+    private fun saveImageFromUrl(url: String, id: Int) {
         val image = ImageIO.read(URL(url))
         val formatName = url.takeLastWhile { it != '.' }.toLowerCase()
-        val file = File(path + "/" + IMG_DIR + "/" + cntPages.toString() +
-                                  "_" + cntImages.toString() + "." + formatName)
+        val byteOutputStream = ByteArrayOutputStream()
+        ImageIO.write(image, formatName, byteOutputStream)
+        database.addImage(ExposedBlob(byteOutputStream.toByteArray()), id)
+        if (path == "") {
+            return
+        }
+        val file = File(path + "/" + IMAGES_DIR + "/" + cntPages.toString() +
+                "_" + cntImages.toString() + "." + formatName)
         ImageIO.write(image, formatName, file)
         cntImages++
     }
 
-    private fun saveText(text: String) {
-        val file = File(path + "/" + TXT_DIR + "/" + cntPages.toString() + ".txt")
-        FileWriter(file).use { it.write(text) }
+    private fun saveArticle(article: String, id: Int) {
+        database.addArticle(article, id)
+        if (path == "") {
+            return
+        }
+        val file = File(path + "/" + ARTICLES_DIR + "/" + cntPages.toString() + ".txt")
+        FileWriter(file).use { it.write(article) }
     }
 
     private fun extractWikiPageUrls(doc: Document): List<String> {
@@ -50,36 +59,42 @@ class WikiCrawler {
                   .filter { '.' in it.takeLast(7) }
     }
 
-    private fun extractText(doc: Document): String {
+    private fun extractArticle(doc: Document): String {
         doc.select("span.mw-editsection, div.toc, sup.reference, span[id=Примечания]").remove()
         return doc.select("div.mw-parser-output").text()
     }
 
-    fun setPath(path: String) {
-        this.path = path
+    fun addUrl(url: String): Int? {
+        val id = database.addUrl(url)
+        if (id != null) {
+            queue.add(Pair(url, id))
+            return id
+        } else {
+            return null
+        }
     }
 
-    fun addUrl(url: String)
-    {
-        if (url in index) {
-            return
-        }
-        queue.add(url)
-        index.add(url)
+    fun setPath(path: String) {
+        this.path = path
+        File(path + "/" + IMAGES_DIR).mkdir()
+        File(path + "/" + ARTICLES_DIR).mkdir()
+    }
+
+    fun setCntPagesMax(cntPagesMax: Int) {
+        this.cntPagesMax = cntPagesMax
     }
 
     fun crawl() {
-        File(path + "/" + IMG_DIR).mkdir()
-        File(path + "/" + TXT_DIR).mkdir()
-        while (!queue.isEmpty() && cntPages < MAX_PAGES_CNT) {
-            val url = queue.poll()
+        while (!queue.isEmpty() && cntPages < cntPagesMax) {
+            val (url, id) = queue.poll()
             val doc = Jsoup.connect(url).get()
             val pages = extractWikiPageUrls(doc)
             val images = extractImageUrls(doc)
-            val text = extractText(doc)
-            pages.forEach { addUrl(WIKI_HTTPS + it) }
-            images.forEach { saveImageFromUrl(it) }
-            saveText(text)
+            val article = extractArticle(doc)
+            pages.forEach { val idTo = addUrl(WIKI_HTTPS + it)
+                            if (idTo != null) database.addLink(id, idTo) }
+            images.forEach { saveImageFromUrl(it, id) }
+            saveArticle(article, id)
             cntPages++
             cntImages = 0
         }
