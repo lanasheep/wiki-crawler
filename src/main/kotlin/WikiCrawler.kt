@@ -2,6 +2,7 @@ import java.util.Queue
 import java.util.LinkedList
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import mu.KotlinLogging
 import java.io.*
 import java.net.URL
 import javax.imageio.ImageIO
@@ -12,25 +13,32 @@ const val IMAGES_DIR = "images"
 const val ARTICLES_DIR = "articles"
 
 class WikiCrawler(private val database: DB) {
+    private val logger = KotlinLogging.logger {}
     private var cntImages = 0
     private var cntPages = 0
     private var path = ""
-    private var cntPagesMax = 5
+    private var cntPagesMax = 30
     private val queue: Queue<Pair<String, Int>> = LinkedList<Pair<String, Int>>()
 
     private fun saveImageFromUrl(url: String, id: Int) {
-        val image = ImageIO.read(URL(url))
-        val formatName = url.takeLastWhile { it != '.' }.toLowerCase()
-        val byteOutputStream = ByteArrayOutputStream()
-        ImageIO.write(image, formatName, byteOutputStream)
-        database.addImage(ExposedBlob(byteOutputStream.toByteArray()), id)
-        if (path == "") {
-            return
+        try {
+            val image = ImageIO.read(URL(url))
+            val formatName = url.takeLastWhile { it != '.' }.toLowerCase()
+            val byteOutputStream = ByteArrayOutputStream()
+            ImageIO.write(image, formatName, byteOutputStream)
+            database.addImage(ExposedBlob(byteOutputStream.toByteArray()), id)
+            if (path == "") {
+                return
+            }
+            val file = File(path + "/" + IMAGES_DIR + "/" + cntPages.toString() +
+                    "_" + cntImages.toString() + "." + formatName)
+            ImageIO.write(image, formatName, file)
+            cntImages++
         }
-        val file = File(path + "/" + IMAGES_DIR + "/" + cntPages.toString() +
-                "_" + cntImages.toString() + "." + formatName)
-        ImageIO.write(image, formatName, file)
-        cntImages++
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
+        }
     }
 
     private fun saveArticle(article: String, id: Int) {
@@ -38,8 +46,14 @@ class WikiCrawler(private val database: DB) {
         if (path == "") {
             return
         }
-        val file = File(path + "/" + ARTICLES_DIR + "/" + cntPages.toString() + ".txt")
-        FileWriter(file).use { it.write(article) }
+        try {
+            val file = File(path + "/" + ARTICLES_DIR + "/" + cntPages.toString() + ".txt")
+            FileWriter(file).use { it.write(article) }
+        }
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
+        }
     }
 
     private fun extractWikiPageUrls(doc: Document): List<String> {
@@ -64,6 +78,19 @@ class WikiCrawler(private val database: DB) {
         return doc.select("div.mw-parser-output").text()
     }
 
+    private fun getDoc(url: String): Document? {
+        var doc: Document? = null
+        try {
+            doc = Jsoup.connect(url).get()
+        }
+        catch (e: Exception) {
+            println(url)
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
+        }
+        return doc
+    }
+
     fun addUrl(url: String): Int? {
         val id = database.addUrl(url)
         if (id != null) {
@@ -76,8 +103,14 @@ class WikiCrawler(private val database: DB) {
 
     fun setPath(path: String) {
         this.path = path
-        File(path + "/" + IMAGES_DIR).mkdir()
-        File(path + "/" + ARTICLES_DIR).mkdir()
+        try {
+            File(path + "/" + IMAGES_DIR).mkdir()
+            File(path + "/" + ARTICLES_DIR).mkdir()
+        }
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
+        }
     }
 
     fun setCntPagesMax(cntPagesMax: Int) {
@@ -87,7 +120,11 @@ class WikiCrawler(private val database: DB) {
     fun crawl() {
         while (!queue.isEmpty() && cntPages < cntPagesMax) {
             val (url, id) = queue.poll()
-            val doc = Jsoup.connect(url).get()
+            logger.info("Start processing $url\n")
+            val doc = getDoc(url)
+            if (doc == null) {
+                continue
+            }
             val pages = extractWikiPageUrls(doc)
             val images = extractImageUrls(doc)
             val article = extractArticle(doc)
@@ -97,6 +134,7 @@ class WikiCrawler(private val database: DB) {
             saveArticle(article, id)
             cntPages++
             cntImages = 0
+            logger.info("Finish processing $url\n")
         }
     }
 }
