@@ -1,4 +1,4 @@
-import java.util.Queue
+import java.util.PriorityQueue
 import java.util.LinkedList
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -7,6 +7,7 @@ import java.io.*
 import java.net.URL
 import javax.imageio.ImageIO
 import org.jetbrains.exposed.sql.statements.api.ExposedBlob
+import org.joda.time.DateTime
 
 const val WIKI_HTTPS ="https://ru.wikipedia.org/"
 const val IMAGES_DIR = "images"
@@ -18,7 +19,8 @@ class WikiCrawler(private val database: DB) {
     private var cntPages = 0
     private var path = ""
     private var cntPagesMax = 30
-    private val queue: Queue<Pair<String, Int>> = LinkedList<Pair<String, Int>>()
+    private val queue = PriorityQueue({(_, a): Pair<String, Int>, (_, b): Pair<String, Int> ->
+                                        database.getLinksCnt(b) - database.getLinksCnt(a)})
 
     private fun saveImageFromUrl(url: String, id: Int) {
         try {
@@ -91,8 +93,8 @@ class WikiCrawler(private val database: DB) {
         return doc
     }
 
-    fun addUrl(url: String): Int? {
-        val id = database.addUrl(url)
+    fun addUrl(url: String, timeStart: DateTime): Int? {
+        val id = database.addUrl(url, timeStart)
         if (id != null) {
             queue.add(Pair(url, id))
             return id
@@ -117,7 +119,7 @@ class WikiCrawler(private val database: DB) {
         this.cntPagesMax = cntPagesMax
     }
 
-    fun crawl() {
+    fun crawl(timeStart: DateTime) {
         while (!queue.isEmpty() && cntPages < cntPagesMax) {
             val (url, id) = queue.poll()
             logger.info("Start processing $url\n")
@@ -125,10 +127,11 @@ class WikiCrawler(private val database: DB) {
             if (doc == null) {
                 continue
             }
+            database.updTimeLastView(id)
             val pages = extractWikiPageUrls(doc)
             val images = extractImageUrls(doc)
             val article = extractArticle(doc)
-            pages.forEach { val idTo = addUrl(WIKI_HTTPS + it)
+            pages.forEach { val idTo = addUrl(WIKI_HTTPS + it, timeStart)
                             if (idTo != null) database.addLink(id, idTo) }
             images.forEach { saveImageFromUrl(it, id) }
             saveArticle(article, id)
