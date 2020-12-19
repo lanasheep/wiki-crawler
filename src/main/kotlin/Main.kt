@@ -1,8 +1,10 @@
 import java.io.*
 import mu.KotlinLogging
+import tornadofx.launch
 
 fun main(args: Array<String>) {
-    // launch<WikiCrawlerApp>()
+    launch<WikiCrawlerApp>()
+    /*
     val logger = KotlinLogging.logger {}
     if (args.size < 2 || args.size > 2) {
         logger.error("Wrong number of arguments.\nProgram terminated.")
@@ -24,6 +26,7 @@ fun main(args: Array<String>) {
         }
         path = FileReader(filePath).use { it.readText() }
     }
-    val launcher = Launcher(urls, 3, 10, path)
+    val launcher = Launcher(urls, 3, 3, path)
     launcher.launch()
+     */
 }

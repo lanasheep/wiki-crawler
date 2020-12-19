@@ -13,6 +13,9 @@ const val WIKI_HTTPS ="https://ru.wikipedia.org/"
 const val IMAGES_DIR = "images"
 const val ARTICLES_DIR = "articles"
 
+data class ChangedPage(val url: String, val heading: String,
+                       val valuesBefore: Triple<Int, Int, Int>, val valuesAfter: Triple<Int, Int, Int>)
+
 class WikiCrawler(private val database: DB) {
     private val logger = KotlinLogging.logger {}
     private var cntImages = 0
@@ -20,7 +23,7 @@ class WikiCrawler(private val database: DB) {
     private var path = ""
     private var cntPagesMax = 30
     private val queue = PriorityQueue({(_, a): Pair<String, Int>, (_, b): Pair<String, Int> ->
-                                        database.getLinksCnt(b) - database.getLinksCnt(a)})
+                                        database.getLinksToCnt(b) - database.getLinksToCnt(a)})
 
     private fun saveImageFromUrl(url: String, id: Int) {
         try {
@@ -43,14 +46,14 @@ class WikiCrawler(private val database: DB) {
         }
     }
 
-    private fun saveArticle(article: String, id: Int) {
-        database.addArticle(article, id)
+    private fun saveArticle(content: String, heading: String, id: Int) {
+        database.addArticle(content, heading, id)
         if (path == "") {
             return
         }
         try {
             val file = File(path + "/" + ARTICLES_DIR + "/" + cntPages.toString() + ".txt")
-            FileWriter(file).use { it.write(article) }
+            FileWriter(file).use { it.write(heading + "\n" + content) }
         }
         catch (e: Exception) {
             val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
@@ -65,6 +68,7 @@ class WikiCrawler(private val database: DB) {
                   .select("a[href]")
                   .map { it.attr("href") }
                   .filter { it.startsWith("/wiki/") }
+                  .filter { '.' !in it.takeLast(7) }
     }
 
     private fun extractImageUrls(doc: Document): List<String> {
@@ -75,9 +79,11 @@ class WikiCrawler(private val database: DB) {
                   .filter { '.' in it.takeLast(7) }
     }
 
-    private fun extractArticle(doc: Document): String {
+    private fun extractArticle(doc: Document): Pair<String, String> {
+        val heading = doc.select("div[id=content]").select("h1[id=firstHeading]").text()
+        //println(heading)
         doc.select("span.mw-editsection, div.toc, sup.reference, span[id=Примечания]").remove()
-        return doc.select("div.mw-parser-output").text()
+        return Pair(doc.select("div.mw-parser-output").text(), heading)
     }
 
     private fun getDoc(url: String): Document? {
@@ -86,11 +92,15 @@ class WikiCrawler(private val database: DB) {
             doc = Jsoup.connect(url).get()
         }
         catch (e: Exception) {
-            println(url)
             val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
             logger.error("Exception caught: $stacktrace\n")
         }
         return doc
+    }
+
+    private fun pageChanged(id: Int, cntLinks: Int, cntImages: Int, articleLen: Int): Boolean {
+        return database.getTimeLastView(id) != null && (cntLinks != database.getLinksFromCnt(id) || cntImages != database.getImagesCnt(id) ||
+               articleLen != database.getArticleLen(id))
     }
 
     fun addUrl(url: String, timeStart: DateTime): Int? {
@@ -119,7 +129,8 @@ class WikiCrawler(private val database: DB) {
         this.cntPagesMax = cntPagesMax
     }
 
-    fun crawl(timeStart: DateTime) {
+    fun crawl(timeStart: DateTime): List<ChangedPage> {
+        val changedPages = mutableListOf<ChangedPage>()
         while (!queue.isEmpty() && cntPages < cntPagesMax) {
             val (url, id) = queue.poll()
             logger.info("Start processing $url\n")
@@ -127,17 +138,27 @@ class WikiCrawler(private val database: DB) {
             if (doc == null) {
                 continue
             }
-            database.updTimeLastView(id)
             val pages = extractWikiPageUrls(doc)
             val images = extractImageUrls(doc)
-            val article = extractArticle(doc)
+            val (content, heading) = extractArticle(doc)
+            //println(url)
+            if (pageChanged(id, pages.size, images.size, content.length + heading.length)) {
+                database.updTimeLastChange(id)
+                changedPages.add(
+                    ChangedPage(url, heading,
+                    Triple(database.getLinksFromCnt(id), database.getImagesCnt(id), database.getArticleLen(id)!!),
+                    Triple(pages.size, images.size, content.length + heading.length))
+                )
+            }
+            database.updTimeLastView(id)
             pages.forEach { val idTo = addUrl(WIKI_HTTPS + it, timeStart)
                             if (idTo != null) database.addLink(id, idTo) }
             images.forEach { saveImageFromUrl(it, id) }
-            saveArticle(article, id)
+            saveArticle(content, heading, id)
             cntPages++
             cntImages = 0
             logger.info("Finish processing $url\n")
         }
+        return changedPages
     }
 }

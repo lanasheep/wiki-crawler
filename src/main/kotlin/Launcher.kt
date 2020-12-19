@@ -14,13 +14,14 @@ class Launcher(private val urls: List<String>,
         database = DB()
     }
 
-    fun launch() {
+    fun launch(): List<ChangedPage> {
         val executor = Executors.newFixedThreadPool(concurrencyLevel)
+        val changedPages = mutableListOf<ChangedPage>()
         var block = urls.size / concurrencyLevel
         if (urls.size % concurrencyLevel != 0) {
             block++
         }
-        val urlsDivided = urls.sortedBy { database.getLinksCnt(database.getUrlId(it)) }.withIndex()
+        val urlsDivided = urls.sortedBy { database.getLinksToCnt(database.getUrlId(it)) }.withIndex()
                               .groupBy { it.index % block }
         val timeStart = DateTime.now()
         for ((_, lst) in urlsDivided) {
@@ -31,12 +32,13 @@ class Launcher(private val urls: List<String>,
                 }
                 crawler.setCntPagesMax(cntPagesMax)
                 lst.forEach { crawler.addUrl(it.value, timeStart) }
-                crawler.crawl(timeStart)
+                changedPages += crawler.crawl(timeStart)
             }
             executor.execute(worker)
         }
         executor.shutdown()
         while (!executor.isTerminated) {
         }
+        return changedPages
     }
 }
