@@ -13,10 +13,7 @@ const val WIKI_HTTPS ="https://ru.wikipedia.org/"
 const val IMAGES_DIR = "images"
 const val ARTICLES_DIR = "articles"
 
-data class ChangedPage(val url: String, val heading: String,
-                       val valuesBefore: Triple<Int, Int, Int>, val valuesAfter: Triple<Int, Int, Int>)
-
-class WikiCrawler(private val database: DB) {
+class WikiCrawler(private val database: WikiPagesDB) {
     private val logger = KotlinLogging.logger {}
     private var cntImages = 0
     private var cntPages = 0
@@ -81,7 +78,6 @@ class WikiCrawler(private val database: DB) {
 
     private fun extractArticle(doc: Document): Pair<String, String> {
         val heading = doc.select("div[id=content]").select("h1[id=firstHeading]").text()
-        //println(heading)
         doc.select("span.mw-editsection, div.toc, sup.reference, span[id=Примечания]").remove()
         return Pair(doc.select("div.mw-parser-output").text(), heading)
     }
@@ -98,9 +94,32 @@ class WikiCrawler(private val database: DB) {
         return doc
     }
 
-    private fun pageChanged(id: Int, cntLinks: Int, cntImages: Int, articleLen: Int): Boolean {
-        return database.getTimeLastView(id) != null && (cntLinks != database.getLinksFromCnt(id) || cntImages != database.getImagesCnt(id) ||
-               articleLen != database.getArticleLen(id))
+    private fun pageViewed(id: Int): Boolean {
+        return database.getTimeLastView(id) != null
+    }
+
+    private fun getFirstContentMismatch(id: Int, content: String): Int {
+        val contentPrev = database.getArticleContent(id)!!
+        val matchLen = content.commonPrefixWith(contentPrev).length
+        if (matchLen == content.length) {
+            return 0
+        }
+        else {
+            return matchLen + 1
+        }
+    }
+
+    private fun getDifference(id: Int, cntLinks: Int, cntImages: Int, articleLen: Int, content: String): Difference? {
+        val cntPagesDiff = cntLinks - database.getLinksFromCnt(id)
+        val cntImagesDiff = cntImages - database.getImagesCnt(id)
+        val articleLenDiff = articleLen - database.getArticleLen(id)!!
+        val firstContentMismatch = getFirstContentMismatch(id, content)
+        if (cntPagesDiff != 0 || cntImagesDiff != 0 || articleLenDiff != 0 || firstContentMismatch != 0) {
+            return Difference(cntPagesDiff, cntImagesDiff, articleLenDiff, firstContentMismatch)
+        }
+        else {
+            return null
+        }
     }
 
     fun addUrl(url: String, timeStart: DateTime): Int? {
@@ -141,14 +160,11 @@ class WikiCrawler(private val database: DB) {
             val pages = extractWikiPageUrls(doc)
             val images = extractImageUrls(doc)
             val (content, heading) = extractArticle(doc)
-            //println(url)
-            if (pageChanged(id, pages.size, images.size, content.length + heading.length)) {
-                database.updTimeLastChange(id)
-                changedPages.add(
-                    ChangedPage(url, heading,
-                    Triple(database.getLinksFromCnt(id), database.getImagesCnt(id), database.getArticleLen(id)!!),
-                    Triple(pages.size, images.size, content.length + heading.length))
-                )
+            if (pageViewed(id)) {
+                val diff = getDifference(id, pages.size, images.size, content.length + heading.length, content)
+                if (diff != null) {
+                    changedPages.add(ChangedPage(url, heading, diff))
+                }
             }
             database.updTimeLastView(id)
             pages.forEach { val idTo = addUrl(WIKI_HTTPS + it, timeStart)

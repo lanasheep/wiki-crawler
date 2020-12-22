@@ -7,7 +7,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import org.joda.time.DateTime
 import tornadofx.timeline
 
-class DB {
+class WikiPagesDB {
     private val logger = KotlinLogging.logger {}
 
     object Urls : Table() {
@@ -42,7 +42,7 @@ class DB {
     }
 
     init {
-        Database.connect("jdbc:h2:./www;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        Database.connect("jdbc:h2:./mydb;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         transaction {
             SchemaUtils.create(Urls, Links, Images, Articles)
         }
@@ -207,6 +207,23 @@ class DB {
         }
         return len
     }
+
+    fun getArticleContent(id: Int?): String? {
+        if (id == null) {
+            return null
+        }
+        var content: String? = null
+        try {
+            transaction {
+                content = Articles.select { Articles.idFrom eq id.toInt() }.single()[Articles.content]
+            }
+        }
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
+        }
+        return content
+    }
     
     fun getHeadingsList(): List<Pair<Int, String>> {
         var headings = listOf<Pair<Int, String>>()
@@ -277,8 +294,14 @@ class DB {
         if (id == null) {
             return
         }
-        transaction {
-            Urls.update({ Urls.id eq id }) { it[Urls.timeLastCheck] = DateTime.now() }
+        try {
+            transaction {
+                Urls.update({ Urls.id eq id }) { it[Urls.timeLastCheck] = DateTime.now() }
+            }
+        }
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
         }
     }
 
@@ -286,8 +309,14 @@ class DB {
         if (id == null) {
             return
         }
-        transaction {
-            Urls.update({ Urls.id eq id }) { it[Urls.timeLastView] = DateTime.now() }
+        try {
+            transaction {
+                Urls.update({ Urls.id eq id }) { it[Urls.timeLastView] = DateTime.now() }
+            }
+        }
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
         }
     }
 
@@ -295,8 +324,14 @@ class DB {
         if (id == null) {
             return
         }
-        transaction {
-            Urls.update({ Urls.id eq id }) { it[Urls.timeLastChange] = DateTime.now() }
+        try {
+            transaction {
+                Urls.update({ Urls.id eq id }) { it[Urls.timeLastChange] = DateTime.now() }
+            }
+        }
+        catch (e: Exception) {
+            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
+            logger.error("Exception caught: $stacktrace\n")
         }
     }
 }

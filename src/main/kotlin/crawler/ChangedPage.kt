@@ -1,0 +1,1 @@
+data class ChangedPage(val url: String, val heading: String, val diff: Difference)

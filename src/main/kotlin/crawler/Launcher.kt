@@ -7,14 +7,15 @@ class Launcher(private val urls: List<String>,
                private var concurrencyLevel: Int,
                private val cntPagesMax: Int,
                private val path: String? = null) {
-    private var database: DB
+    private val logger = KotlinLogging.logger {}
+    private var database = WikiPagesDB()
 
     init {
         concurrencyLevel = min(concurrencyLevel, urls.size)
-        database = DB()
     }
 
     fun launch(): List<ChangedPage> {
+        logger.info("Launch started\n")
         val executor = Executors.newFixedThreadPool(concurrencyLevel)
         val changedPages = mutableListOf<ChangedPage>()
         var block = urls.size / concurrencyLevel
@@ -39,6 +40,7 @@ class Launcher(private val urls: List<String>,
         executor.shutdown()
         while (!executor.isTerminated) {
         }
+        logger.info("Launch completed\n")
         return changedPages
     }
 }

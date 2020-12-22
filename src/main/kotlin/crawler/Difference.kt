@@ -1,0 +1,1 @@
+data class Difference(val cntPagesDiff: Int, val cntTmagesDiff: Int, val articleLenDiff: Int, val firstContentMismatch: Int)
