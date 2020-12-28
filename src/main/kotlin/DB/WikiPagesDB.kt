@@ -1,11 +1,13 @@
 import mu.KotlinLogging
 import java.io.*
+import com.natpryce.konfig.ConfigurationProperties
+import com.natpryce.konfig.Key
+import com.natpryce.konfig.stringType
 import org.jetbrains.exposed.sql.statements.api.ExposedBlob
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.jodatime.datetime
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.joda.time.DateTime
-import tornadofx.timeline
 
 class WikiPagesDB {
     private val logger = KotlinLogging.logger {}
@@ -41,8 +43,24 @@ class WikiPagesDB {
         override val primaryKey = PrimaryKey(id)
     }
 
+    companion object {
+        fun connect() {
+            val config = ConfigurationProperties.fromResource("database.properties")
+            val url = Key("database.url", stringType)
+            val driver = Key("database.driver", stringType)
+            Database.connect(config[url], config[driver])
+        }
+
+        fun deleteTables() {
+            connect()
+            transaction {
+                SchemaUtils.drop(Urls, Links, Images, Articles)
+            }
+        }
+    }
+
     init {
-        Database.connect("jdbc:h2:./mydb;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        connect()
         transaction {
             SchemaUtils.create(Urls, Links, Images, Articles)
         }
@@ -69,8 +87,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return id
     }
@@ -85,8 +102,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -100,8 +116,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -116,8 +131,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -132,8 +146,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return id
     }
@@ -149,8 +162,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return cnt
     }
@@ -166,46 +178,59 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return cnt
+    }
+
+    fun getImages(id: Int?): List<ExposedBlob> {
+        if (id == null) {
+            return emptyList()
+        }
+        var images = listOf<ExposedBlob>()
+        try {
+            transaction {
+                images = Images.select { Images.idFrom eq id }.map { it[Images.content] }
+            }
+        }
+        catch (e: Exception) {
+            Helper.error(logger, e)
+        }
+        return images
+    }
+
+    fun getArticle(id: Int?): Pair<String, String>? {
+        if (id == null) {
+            return null
+        }
+        var content: String? = null
+        var heading: String? = null
+        try {
+            transaction {
+                content = Articles.select { Articles.idFrom eq id.toInt() }.single()[Articles.content]
+                heading = Articles.select { Articles.idFrom eq id.toInt() }.single()[Articles.heading]
+            }
+        }
+        catch (e: Exception) {
+            Helper.error(logger, e)
+        }
+        return Pair(content!!, heading!!)
     }
 
     fun getImagesCnt(id: Int?): Int {
         if (id == null) {
             return 0
         }
-        var cnt: Int = 0
-        try {
-            transaction {
-                cnt = Images.select { Images.idFrom eq id }.count().toInt()
-            }
-        }
-        catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
-        }
-        return cnt
+        val images = getImages(id)
+        return images.size
     }
 
     fun getArticleLen(id: Int?): Int? {
         if (id == null) {
             return null
         }
-        var len = 0
-        try {
-            transaction {
-                val content = Articles.select { Articles.idFrom eq id.toInt() }.single()[Articles.content]
-                val heading = Articles.select { Articles.idFrom eq id.toInt() }.single()[Articles.heading]
-                len = content.count() + heading.count()
-            }
-        }
-        catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
-        }
-        return len
+        val article = getArticle(id)
+        return article!!.first.length + article!!.second.length
     }
 
     fun getArticleContent(id: Int?): String? {
@@ -219,8 +244,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return content
     }
@@ -233,8 +257,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return headings
     }
@@ -250,8 +273,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return timeLastCheck
     }
@@ -267,8 +289,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return timeLastView
     }
@@ -284,8 +305,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return timeLastChange
     }
@@ -300,8 +320,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -315,8 +334,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -330,8 +348,7 @@ class WikiPagesDB {
             }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 }

@@ -5,6 +5,7 @@ buildscript {
     ext.exposed_version = '0.28.1'
     ext.slf4j_version = '1.7.30'
     ext.logging_version = '1.6.10'
+    ext.konfig_version = '1.6.10.0'
     ext.tornadofx_version = '2.0.0-SNAPSHOT'
 
     repositories {
@@ -41,6 +42,7 @@ dependencies {
     compile "org.jetbrains.exposed:exposed-jodatime:$exposed_version"
     compile "io.github.microutils:kotlin-logging:$logging_version"
     compile "org.slf4j:slf4j-simple:$slf4j_version"
+    compile "com.natpryce:konfig:$konfig_version"
     compile "no.tornado:tornadofx:$tornadofx_version"
     compile "org.jetbrains.kotlin:kotlin-reflect"
 

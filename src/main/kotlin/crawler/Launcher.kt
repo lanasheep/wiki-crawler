@@ -15,7 +15,7 @@ class Launcher(private val urls: List<String>,
     }
 
     fun launch(): List<ChangedPage> {
-        logger.info("Launch started\n")
+        Helper.info(logger, "Launch started\n")
         val executor = Executors.newFixedThreadPool(concurrencyLevel)
         val changedPages = mutableListOf<ChangedPage>()
         var block = urls.size / concurrencyLevel
@@ -40,7 +40,7 @@ class Launcher(private val urls: List<String>,
         executor.shutdown()
         while (!executor.isTerminated) {
         }
-        logger.info("Launch completed\n")
+        Helper.info(logger, "Launch completed\n")
         return changedPages
     }
 }

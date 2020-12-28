@@ -22,6 +22,61 @@ class WikiCrawler(private val database: WikiPagesDB) {
     private val queue = PriorityQueue({(_, a): Pair<String, Int>, (_, b): Pair<String, Int> ->
                                         database.getLinksToCnt(b) - database.getLinksToCnt(a)})
 
+    fun addUrl(url: String, timeStart: DateTime): Int? {
+        val id = database.addUrl(url, timeStart)
+        if (id != null) {
+            queue.add(Pair(url, id))
+            return id
+        } else {
+            return null
+        }
+    }
+
+    fun setPath(path: String) {
+        this.path = path
+        try {
+            File("${path}${File.separator}${IMAGES_DIR}").mkdir()
+            File("${path}${File.separator}${ARTICLES_DIR}").mkdir()
+        }
+        catch (e: Exception) {
+            Helper.error(logger, e)
+        }
+    }
+
+    fun setCntPagesMax(cntPagesMax: Int) {
+        this.cntPagesMax = cntPagesMax
+    }
+
+    fun crawl(timeStart: DateTime): List<ChangedPage> {
+        val changedPages = mutableListOf<ChangedPage>()
+        while (!queue.isEmpty() && cntPages < cntPagesMax) {
+            val (url, id) = queue.poll()
+            Helper.info(logger, "Start processing $url\n")
+            val doc = getDoc(url)
+            if (doc == null) {
+                continue
+            }
+            val pages = extractWikiPageUrls(doc)
+            val images = extractImageUrls(doc)
+            val (content, heading) = extractArticle(doc)
+            if (pageViewed(id)) {
+                val diff = getDifference(id, pages.size, images.size, content.length + heading.length, content)
+                if (diff != null) {
+                    changedPages.add(ChangedPage(url, heading, diff))
+                }
+            }
+            database.updTimeLastView(id)
+            pages.forEach { val idTo = addUrl(WIKI_HTTPS + it, timeStart)
+                if (idTo != null) database.addLink(id, idTo) }
+            images.forEach { saveImageFromUrl(it, id) }
+            saveArticle(content, heading, id)
+            cntPages++
+            cntImages = 0
+            Helper.info(logger, "Finish processing $url\n")
+        }
+        return changedPages
+    }
+
     private fun saveImageFromUrl(url: String, id: Int) {
         try {
             val image = ImageIO.read(URL(url))
@@ -38,8 +93,7 @@ class WikiCrawler(private val database: WikiPagesDB) {
             cntImages++
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -53,8 +107,7 @@ class WikiCrawler(private val database: WikiPagesDB) {
             FileWriter(file).use { it.write(heading + "\n" + content) }
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
     }
 
@@ -88,8 +141,7 @@ class WikiCrawler(private val database: WikiPagesDB) {
             doc = Jsoup.connect(url).get()
         }
         catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
+            Helper.error(logger, e)
         }
         return doc
     }
@@ -120,61 +172,5 @@ class WikiCrawler(private val database: WikiPagesDB) {
         else {
             return null
         }
-    }
-
-    fun addUrl(url: String, timeStart: DateTime): Int? {
-        val id = database.addUrl(url, timeStart)
-        if (id != null) {
-            queue.add(Pair(url, id))
-            return id
-        } else {
-            return null
-        }
-    }
-
-    fun setPath(path: String) {
-        this.path = path
-        try {
-            File(path + "/" + IMAGES_DIR).mkdir()
-            File(path + "/" + ARTICLES_DIR).mkdir()
-        }
-        catch (e: Exception) {
-            val stacktrace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().trim()
-            logger.error("Exception caught: $stacktrace\n")
-        }
-    }
-
-    fun setCntPagesMax(cntPagesMax: Int) {
-        this.cntPagesMax = cntPagesMax
-    }
-
-    fun crawl(timeStart: DateTime): List<ChangedPage> {
-        val changedPages = mutableListOf<ChangedPage>()
-        while (!queue.isEmpty() && cntPages < cntPagesMax) {
-            val (url, id) = queue.poll()
-            logger.info("Start processing $url\n")
-            val doc = getDoc(url)
-            if (doc == null) {
-                continue
-            }
-            val pages = extractWikiPageUrls(doc)
-            val images = extractImageUrls(doc)
-            val (content, heading) = extractArticle(doc)
-            if (pageViewed(id)) {
-                val diff = getDifference(id, pages.size, images.size, content.length + heading.length, content)
-                if (diff != null) {
-                    changedPages.add(ChangedPage(url, heading, diff))
-                }
-            }
-            database.updTimeLastView(id)
-            pages.forEach { val idTo = addUrl(WIKI_HTTPS + it, timeStart)
-                            if (idTo != null) database.addLink(id, idTo) }
-            images.forEach { saveImageFromUrl(it, id) }
-            saveArticle(content, heading, id)
-            cntPages++
-            cntImages = 0
-            logger.info("Finish processing $url\n")
-        }
-        return changedPages
     }
 }
